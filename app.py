@@ -6,7 +6,9 @@ from PIL import Image
 import os
 import time
 
+# Import our model implementations
 from src.models.model import FaceRecognitionModel
+from src.models.fairface_adapter import PretrainedFairFaceAdapter
 from src.bias_mitigation.detector import BiasDetector
 from src.bias_mitigation.mitigator import BiasMitigator
 from src.privacy.encryption import HomomorphicEncryptor
@@ -44,30 +46,63 @@ def main():
         st.session_state['explainer'] = None
     
     # Load model if available
+    model_options = [
+        "None", 
+        "Pretrained FairFace (7 races)", 
+        "Pretrained FairFace (4 races)",
+        "models/best_model.pth", 
+        "models/mitigated_model.pth"
+    ]
+    
     model_path = st.sidebar.selectbox(
         "Select Model",
-        ["None", "models/best_model.pth", "models/mitigated_model.pth"],
-        help="Select a pre-trained model to use for predictions"
+        model_options,
+        help="Select a model to use for predictions"
     )
     
+    # Handle model loading
     if model_path != "None":
-        if os.path.exists(model_path):
-            if st.session_state['model'] is None or st.session_state['model_path'] != model_path:
-                with st.spinner("Loading model..."):
-                    try:
-                        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-                        model = FaceRecognitionModel.load(model_path, map_location=device)
+        # Check if we need to load a new model
+        if st.session_state['model'] is None or st.session_state['model_path'] != model_path:
+            with st.spinner("Loading model..."):
+                try:
+                    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                    
+                    # Handle different model types
+                    if model_path == "Pretrained FairFace (7 races)":
+                        model = PretrainedFairFaceAdapter.from_pretrained('race_7')
+                        model_type = "fairface_pretrained"
+                    elif model_path == "Pretrained FairFace (4 races)":
+                        model = PretrainedFairFaceAdapter.from_pretrained('race_4')
+                        model_type = "fairface_pretrained"
+                    else:
+                        # Our custom trained model
+                        if os.path.exists(model_path):
+                            model = FaceRecognitionModel.load(model_path, map_location=device)
+                            model_type = "custom"
+                        else:
+                            st.sidebar.warning(f"Model file not found: {model_path}")
+                            return
+                    
+                    # Save the model and its type
+                    if model_type == "custom":
                         model.eval()
-                        st.session_state['model'] = model
-                        st.session_state['model_path'] = model_path
-                        st.sidebar.success(f"Model loaded successfully: {model_path}")
-                        
-                        # Initialize explainer
+                    
+                    st.session_state['model'] = model
+                    st.session_state['model_path'] = model_path
+                    st.session_state['model_type'] = model_type
+                    st.sidebar.success(f"Model loaded successfully: {model_path}")
+                    
+                    # Initialize explainer for custom models
+                    if model_type == "custom":
                         st.session_state['explainer'] = ShapExplainer(model, device=device)
-                    except Exception as e:
-                        st.sidebar.error(f"Error loading model: {e}")
-        else:
-            st.sidebar.warning(f"Model file not found: {model_path}")
+                    else:
+                        # For pretrained models, we would need to adapt the explainer
+                        # or use a different explanation approach
+                        st.session_state['explainer'] = None
+                        
+                except Exception as e:
+                    st.sidebar.error(f"Error loading model: {e}")
     else:
         st.session_state['model'] = None
     
@@ -102,6 +137,21 @@ def show_home_page():
     ### Getting Started
     
     Select a page from the sidebar to explore different aspects of the application.
+    """)
+    
+    # Add information about using pretrained FairFace models
+    st.info("""
+    **Using Pretrained FairFace Models:**
+    
+    This application supports pretrained FairFace models from the original repository.
+    You can select either the 7-race or 4-race model from the dropdown in the sidebar.
+    
+    - **7-race model**: Predicts race as White, Black, Latino/Hispanic, East Asian, Southeast Asian, Indian, Middle Eastern
+    - **4-race model**: Predicts race as White, Black, Asian, Indian
+    
+    If you don't see these options, ensure the model files are in the `models/` directory:
+    - `res34_fair_align_multi_7_20190809.pt`
+    - `res34_fair_align_multi_4_20190809.pt`
     """)
     
     st.subheader("Upload an Image")

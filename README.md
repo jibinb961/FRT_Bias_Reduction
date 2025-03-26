@@ -47,7 +47,28 @@ After downloading the dataset, the processing happens automatically. The script:
 
 The `src/data/dataset.py` module handles loading and preprocessing this data for training.
 
-### 2. Training the Model
+### Using Pretrained FairFace Models
+
+You can skip training and use the pretrained models from the FairFace repository:
+
+1. Download the pretrained models from [https://github.com/joojs/fairface](https://github.com/joojs/fairface)
+   - `res34_fair_align_multi_7_20190809.pt`: 7-race classification model
+   - `res34_fair_align_multi_4_20190809.pt`: 4-race classification model
+
+2. Place these files in the `models/` directory:
+   ```
+   mkdir -p models
+   mv /path/to/res34_fair_align_multi_7_20190809.pt models/
+   mv /path/to/res34_fair_align_multi_4_20190809.pt models/
+   ```
+
+3. When running the Streamlit app, select one of the pretrained models from the dropdown menu:
+   - "Pretrained FairFace (7 races)"
+   - "Pretrained FairFace (4 races)"
+
+The 7-race model is recommended for more detailed bias analysis as it provides finer-grained race classifications.
+
+### 2. Training the Model (Optional if using pretrained models)
 
 To train the facial recognition model:
 
