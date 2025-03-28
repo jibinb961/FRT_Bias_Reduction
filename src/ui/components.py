@@ -58,8 +58,10 @@ def display_bias_metrics(bias_metrics, interpretations=None):
         # Format values for display
         spd_formatted = f"{spd:.4f}"
         
-        # Handle potential inf values in disparate impact
-        if np.isinf(di):
+        # Handle potential inf or None values in disparate impact
+        if di is None:
+            di_formatted = "N/A (insufficient data)"
+        elif np.isinf(di):
             di_formatted = "∞ (division by zero)"
         else:
             di_formatted = f"{di:.4f}"
@@ -144,9 +146,11 @@ def display_bias_metrics(bias_metrics, interpretations=None):
             # Format values for display
             spd_formatted = f"{spd:.4f}"
             
-            # Handle potential inf values in disparate impact
-            if np.isinf(di):
-                di_formatted = "∞ (insufficient data)"
+            # Handle potential None or inf values in disparate impact
+            if di is None:
+                di_formatted = "N/A (insufficient data)"
+            elif np.isinf(di):
+                di_formatted = "∞ (division by zero)"
             else:
                 di_formatted = f"{di:.4f}"
             
@@ -191,9 +195,9 @@ def display_bias_metrics(bias_metrics, interpretations=None):
                     st.write(description)
             
             # Add a note if metrics seem problematic
-            if np.isinf(di) or abs(spd) > 0.8:
+            if di is None or np.isinf(di) or abs(spd) > 0.8:
                 st.info(f"""
-                Note: The metrics for {race} may be affected by small sample size or class imbalance. 
+                Note: The metrics for {race} may be affected by small sample size, class imbalance, or division by zero. 
                 Consider adding more diverse sample images to get more accurate bias measurements.
                 """)
             

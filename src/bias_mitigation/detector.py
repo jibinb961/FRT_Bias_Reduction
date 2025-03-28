@@ -103,6 +103,10 @@ class BiasDetector:
             unpriv_positive_rate = metrics.base_rate(privileged=False)
             priv_positive_rate = metrics.base_rate(privileged=True)
             
+            # Print rates for debugging
+            print(f"Unprivileged positive rate: {unpriv_positive_rate}")
+            print(f"Privileged positive rate: {priv_positive_rate}")
+            
             # Calculate disparate impact with a safe division
             if priv_positive_rate > 0:
                 disparate_impact = unpriv_positive_rate / priv_positive_rate
@@ -110,11 +114,13 @@ class BiasDetector:
                 # Handle division by zero
                 if unpriv_positive_rate > 0:
                     disparate_impact = float('inf')  # Unprivileged has positive rate but privileged doesn't
+                    print("DI calculation: Privileged group has zero positive rate, unprivileged group has positive rate")
                 else:
-                    disparate_impact = 1.0  # Both are zero, so there's no disparity
+                    disparate_impact = None  # Both are zero, so we can't calculate a meaningful ratio
+                    print("DI calculation: Both privileged and unprivileged groups have zero positive rate")
         except Exception as e:
             print(f"Error calculating disparate impact: {e}")
-            disparate_impact = 1.0  # Default to no disparity if calculation fails
+            disparate_impact = None  # Use None to indicate calculation failed
         
         return {
             'statistical_parity_difference': disparity,
@@ -180,6 +186,12 @@ class BiasDetector:
             female_count = g_df[g_df['gender'] == 0].shape[0]
             print(f"Gender distribution: Male={male_count}, Female={female_count}")
             
+            # Print prediction accuracy
+            male_correct = sum((g_df['gender'] == 1) & (g_df['prediction'] == g_df['label']))
+            female_correct = sum((g_df['gender'] == 0) & (g_df['prediction'] == g_df['label']))
+            print(f"Gender accuracy: Male={male_correct/male_count if male_count > 0 else 0:.2f}, "
+                  f"Female={female_correct/female_count if female_count > 0 else 0:.2f}")
+            
             # Define privileged and unprivileged groups
             privileged_groups = [{'gender': 1}]  # Male
             unprivileged_groups = [{'gender': 0}]  # Female
@@ -199,7 +211,7 @@ class BiasDetector:
                 # Return placeholder metrics indicating insufficient data
                 bias_metrics['gender'] = {
                     'statistical_parity_difference': 0.0,
-                    'disparate_impact': 1.0,
+                    'disparate_impact': None,
                     'group_size': {
                         'privileged': male_count,
                         'unprivileged': female_count
@@ -219,28 +231,26 @@ class BiasDetector:
         # Check if we have race predictions and labels
         if 'race' in model_predictions and 'race' in true_labels:
             # Get unique races
-            unique_races = list(set(model_predictions['race']))
+            unique_races = list(set(true_labels['race']))
+            print(f"Found {len(unique_races)} unique races in ground truth: {unique_races}")
             
             # Define race encoding (map each race to a numerical value)
             race_encoding = {race: i for i, race in enumerate(unique_races)}
-            
-            # Create numerical race values
-            race_values_num = [race_encoding[race] for race in model_predictions['race']]
             
             # For each race, compute metrics treating it as unprivileged vs. others
             racial_bias = {}
             
             for race in unique_races:
-                # Count occurrences of this race
-                race_count = model_predictions['race'].count(race)
-                other_races_count = len(model_predictions['race']) - race_count
+                # Count occurrences of this race in ground truth
+                race_count = true_labels['race'].count(race)
+                other_races_count = len(true_labels['race']) - race_count
                 
                 # Skip metrics computation if we don't have enough samples
                 if race_count < 3 or other_races_count < 3:
                     print(f"WARNING: Not enough samples for race bias detection. {race}={race_count}, Other races={other_races_count}")
                     racial_bias[race] = {
                         'statistical_parity_difference': 0.0,
-                        'disparate_impact': 1.0,
+                        'disparate_impact': None,
                         'group_size': {
                             'privileged': other_races_count,
                             'unprivileged': race_count
@@ -253,20 +263,29 @@ class BiasDetector:
                     }
                     continue
                 
-                # Encode binary race indicator (1 if this race, 0 otherwise)
-                race_indicators = [1 if r == race else 0 for r in model_predictions['race']]
+                # Use one-hot encoding for races to avoid confusion
+                is_this_race_true = [1 if label == race else 0 for label in true_labels['race']]
+                is_this_race_pred = [1 if pred == race else 0 for pred in model_predictions['race']]
                 
-                # Encode predictions and labels as binary (1 if matched, 0 if not)
-                # This is a simplified approach - in a real app with more context,
-                # you'd use domain knowledge for a more nuanced encoding
-                binary_predictions = [1 if pred == race else 0 for pred in model_predictions['race']]
-                binary_labels = [1 if label == race else 0 for label in true_labels['race']]
+                # Encode binary race indicator (1 if this race, 0 otherwise)
+                race_indicators = [1 if label == race else 0 for label in true_labels['race']]
+                
+                # Use binary predictions here: 1 if the prediction matches the true race, 0 otherwise
+                # This evaluates if the model correctly identifies the true race
+                prediction_correct = [1 if pred == label else 0 for pred, label in zip(model_predictions['race'], true_labels['race'])]
+                
+                # Count correct predictions for this race vs other races
+                correct_this_race = sum([1 for i, is_race in enumerate(race_indicators) if is_race == 1 and prediction_correct[i] == 1])
+                correct_other_races = sum([1 for i, is_race in enumerate(race_indicators) if is_race == 0 and prediction_correct[i] == 1])
+                
+                print(f"Race accuracy: {race}={correct_this_race/race_count if race_count > 0 else 0:.2f}, "
+                      f"Others={correct_other_races/other_races_count if other_races_count > 0 else 0:.2f}")
                 
                 # Create dataframe with numerical values
                 r_df = pd.DataFrame({
-                    'prediction': binary_predictions,
-                    'label': binary_labels,
-                    'race_indicator': race_indicators
+                    'prediction': is_this_race_pred,  # Whether predicted as this race (1) or not (0)
+                    'label': is_this_race_true,       # Whether actually this race (1) or not (0)
+                    'race_indicator': race_indicators # Whether this race (1) or not (0), same as label
                 })
                 
                 # Define privileged (non-specified race) and unprivileged (specified race) groups
@@ -292,7 +311,7 @@ class BiasDetector:
                     # Provide placeholder metrics
                     racial_bias[race] = {
                         'statistical_parity_difference': 0.0,
-                        'disparate_impact': 1.0,
+                        'disparate_impact': None,
                         'group_size': {
                             'privileged': other_races_count,
                             'unprivileged': race_count
@@ -327,7 +346,11 @@ class BiasDetector:
                 spd = metrics['statistical_parity_difference']
                 di = metrics['disparate_impact']
                 
-                if abs(spd) < 0.05 and 0.95 <= di <= 1.05:
+                # Check if DI is None or insufficient data flag is set
+                if di is None or metrics.get('insufficient_data', False):
+                    bias_level = "Unknown"
+                    description = "Insufficient data to determine gender bias level."
+                elif abs(spd) < 0.05 and 0.95 <= di <= 1.05:
                     bias_level = "Low"
                     description = "The model shows minimal gender bias."
                 elif abs(spd) < 0.1 and 0.9 <= di <= 1.1:
@@ -349,7 +372,11 @@ class BiasDetector:
                     spd = race_metrics['statistical_parity_difference']
                     di = race_metrics['disparate_impact']
                     
-                    if abs(spd) < 0.05 and 0.95 <= di <= 1.05:
+                    # Check if DI is None or insufficient data flag is set
+                    if di is None or race_metrics.get('insufficient_data', False):
+                        bias_level = "Unknown"
+                        description = f"Insufficient data to determine bias level for {race} individuals."
+                    elif abs(spd) < 0.05 and 0.95 <= di <= 1.05:
                         bias_level = "Low"
                         description = f"The model shows minimal bias against {race} individuals."
                     elif abs(spd) < 0.1 and 0.9 <= di <= 1.1:

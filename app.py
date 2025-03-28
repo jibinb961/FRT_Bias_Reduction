@@ -241,186 +241,198 @@ def show_bias_detection_page():
         with st.spinner("Analyzing for bias..."):
             # Ensure all required imports are available 
             import pandas as pd
+            import os
             from src.bias_mitigation.detector import BiasDetector
             
             # In the first part of this process, check if the sample_data directory exists
-            sample_dir = 'sample_data'
-            if not os.path.exists(sample_dir) or not os.listdir(sample_dir):
+            sample_dir = 'sample_data/images'
+            labels_file = 'sample_data/labels.csv'
+            
+            # Check if both sample directory and labels file exist
+            if not os.path.exists(sample_dir) or not os.path.isdir(sample_dir) or not os.path.exists(labels_file):
                 st.warning("""
-                No sample images found in the `sample_data` directory. 
-                For accurate bias detection, please run: `python scripts/prepare_sample_data.py`
+                Required data not found. Please ensure:
+                1. The directory 'sample_data/images' exists with image files
+                2. The file 'sample_data/labels.csv' exists with corresponding labels
                 
                 Using synthetic data for demonstration purposes instead.
                 """)
-                
-            # Generate a sample test dataset for real bias detection
-            model = st.session_state['model']
-            
-            # Recreate bias detector to avoid any reference issues
-            bias_detector = BiasDetector()
-            st.session_state['bias_detector'] = bias_detector
-            
-            # Create a sample dataset of common face combinations to analyze bias
-            sample_size = 100
-            
-            # For a 7-race FairFace model, we need to include all races
-            if isinstance(model, PretrainedFairFaceAdapter) and model.num_races == 7:
-                race_categories = list(model.race_map.values())
+                # Use synthetic data code from here...
             else:
-                # Default to 4 races for other models
-                race_categories = ["White", "Black", "Asian", "Indian"]
-            
-            gender_categories = ["Male", "Female"]
-            
-            # Generate predictions for sample images (here we're simulating predictions)
-            # In a real app, you would use a real test dataset
-            sample_predictions = {
-                'gender': [],
-                'age': [],
-                'race': []
-            }
-            
-            sample_labels = {
-                'gender': [],
-                'race': [],
-                'age': []
-            }
-            
-            # If we have sample data, use it to make real predictions
-            if os.path.exists(sample_dir) and os.path.isdir(sample_dir):
-                sample_files = [f for f in os.listdir(sample_dir) if f.endswith(('.jpg', '.png', '.jpeg'))]
-                
-                if sample_files:
-                    # Increase the sample size limit from 20 to more images for better bias detection
-                    max_sample_files = min(50, len(sample_files))  # Process up to 50 images
-                    st.text(f"Using {max_sample_files} sample images for bias detection...")
+                # Load the labels from CSV file
+                try:
+                    labels_df = pd.read_csv(labels_file)
+                    st.success(f"Successfully loaded labels for {len(labels_df)} images")
                     
-                    # Create counters for analyzing the dataset distribution
-                    gender_counts = {"Male": 0, "Female": 0}
-                    race_counts = {}
+                    # Generate a sample test dataset for real bias detection
+                    model = st.session_state['model']
                     
-                    # Make predictions on actual sample images
-                    for file in sample_files[:max_sample_files]:
-                        img_path = os.path.join(sample_dir, file)
+                    # Recreate bias detector to avoid any reference issues
+                    bias_detector = BiasDetector()
+                    st.session_state['bias_detector'] = bias_detector
+                    
+                    # For a 7-race FairFace model, we need to include all races
+                    if isinstance(model, PretrainedFairFaceAdapter) and model.num_races == 7:
+                        race_categories = list(model.race_map.values())
+                    else:
+                        # Default to 4 races for other models
+                        race_categories = ["White", "Black", "Asian", "Indian"]
+                    
+                    # Initialize prediction and label dictionaries
+                    sample_predictions = {
+                        'gender': [],
+                        'race': [],
+                        'age': []
+                    }
+                    
+                    sample_labels = {
+                        'gender': [],
+                        'race': [],
+                        'age': []
+                    }
+                    
+                    # Get image files from the directory
+                    image_files = [f for f in os.listdir(sample_dir) if f.endswith(('.jpg', '.png', '.jpeg'))]
+                    max_sample_files = min(100, len(image_files))  # Process up to 100 images
+                    
+                    # Create counters for analyzing dataset distribution
+                    gender_pred_counts = {"Male": 0, "Female": 0}
+                    race_pred_counts = {}
+                    gender_true_counts = {"Male": 0, "Female": 0}
+                    race_true_counts = {}
+                    
+                    # Track processed images and errors
+                    processed_images = 0
+                    error_count = 0
+                    
+                    for i in range(1, max_sample_files + 1):
+                        img_filename = f"{i}.jpg"
+                        img_path = os.path.join(sample_dir, img_filename)
+                        
+                        # Check if image exists
+                        if not os.path.exists(img_path):
+                            continue
+                        
+                        # Find corresponding label in CSV
+                        # CSV may have 'train/1.jpg' format, so handle both cases
+                        label_row = labels_df[labels_df['file'] == f'train/{i}.jpg'] if not labels_df[labels_df['file'] == f'train/{i}.jpg'].empty else labels_df[labels_df['file'] == img_filename]
+                        
+                        if label_row.empty:
+                            st.warning(f"No label found for image {img_filename}")
+                            continue
+                        
                         try:
+                            # Get ground truth from labels
+                            true_gender = label_row['gender'].values[0]
+                            true_race = label_row['race'].values[0]
+                            true_age = label_row['age'].values[0]
+                            
+                            # Make prediction with model
                             img = Image.open(img_path).convert('RGB')
                             pred = model.predict(img)
                             
-                            # Update counters
-                            gender_counts[pred['gender']] = gender_counts.get(pred['gender'], 0) + 1
-                            race_counts[pred['race']] = race_counts.get(pred['race'], 0) + 1
-                            
-                            # Store string predictions directly - the detector will convert to numerical
+                            # Store predictions and ground truth
                             sample_predictions['gender'].append(pred['gender'])
                             sample_predictions['race'].append(pred['race'])
                             sample_predictions['age'].append(pred['age'])
                             
-                            # For this test, we'll assume the predictions are the ground truth
-                            # In a real app, you would have actual labels
-                            sample_labels['gender'].append(pred['gender'])
-                            sample_labels['race'].append(pred['race'])
-                            sample_labels['age'].append(pred['age'])
+                            sample_labels['gender'].append(true_gender)
+                            sample_labels['race'].append(true_race)
+                            sample_labels['age'].append(true_age)
+                            
+                            # Update counters for predictions
+                            gender_pred_counts[pred['gender']] = gender_pred_counts.get(pred['gender'], 0) + 1
+                            race_pred_counts[pred['race']] = race_pred_counts.get(pred['race'], 0) + 1
+                            
+                            # Update counters for ground truth
+                            gender_true_counts[true_gender] = gender_true_counts.get(true_gender, 0) + 1
+                            race_true_counts[true_race] = race_true_counts.get(true_race, 0) + 1
+                            
+                            processed_images += 1
                             
                         except Exception as e:
-                            st.error(f"Error processing {file}: {e}")
+                            st.error(f"Error processing {img_filename}: {e}")
+                            error_count += 1
                             continue
                     
+                    # Check if we have enough data to proceed
+                    if processed_images < 10:
+                        st.error(f"Only {processed_images} images were successfully processed (with {error_count} errors). Need at least 10 for meaningful analysis.")
+                        return
+                    
+                    st.success(f"Successfully processed {processed_images} images for bias detection")
+                    
                     # Display distribution of the dataset for transparency
-                    st.subheader("Dataset Distribution")
+                    col1, col2 = st.columns(2)
                     
-                    # Gender distribution
-                    st.write("##### Gender Distribution")
-                    gender_df = pd.DataFrame({
-                        'Gender': list(gender_counts.keys()),
-                        'Count': list(gender_counts.values())
-                    })
-                    st.bar_chart(gender_df.set_index('Gender'))
+                    with col1:
+                        st.subheader("Predicted Distribution")
+                        
+                        # Gender predicted distribution
+                        st.write("##### Gender Predictions")
+                        gender_pred_df = pd.DataFrame({
+                            'Gender': list(gender_pred_counts.keys()),
+                            'Count': list(gender_pred_counts.values())
+                        })
+                        st.bar_chart(gender_pred_df.set_index('Gender'))
+                        
+                        # Race predicted distribution
+                        st.write("##### Race Predictions")
+                        race_pred_df = pd.DataFrame({
+                            'Race': list(race_pred_counts.keys()),
+                            'Count': list(race_pred_counts.values())
+                        })
+                        st.bar_chart(race_pred_df.set_index('Race'))
                     
-                    # Race distribution
-                    st.write("##### Race Distribution")
-                    race_df = pd.DataFrame({
-                        'Race': list(race_counts.keys()),
-                        'Count': list(race_counts.values())
-                    })
-                    st.bar_chart(race_df.set_index('Race'))
+                    with col2:
+                        st.subheader("Ground Truth Distribution")
+                        
+                        # Gender ground truth distribution
+                        st.write("##### Gender Truth")
+                        gender_true_df = pd.DataFrame({
+                            'Gender': list(gender_true_counts.keys()),
+                            'Count': list(gender_true_counts.values())
+                        })
+                        st.bar_chart(gender_true_df.set_index('Gender'))
+                        
+                        # Race ground truth distribution
+                        st.write("##### Race Truth")
+                        race_true_df = pd.DataFrame({
+                            'Race': list(race_true_counts.keys()),
+                            'Count': list(race_true_counts.values())
+                        })
+                        st.bar_chart(race_true_df.set_index('Race'))
                     
                     # Warn if distribution is very imbalanced
-                    for race, count in race_counts.items():
+                    for race, count in race_true_counts.items():
                         if count < 3:
-                            st.warning(f"Only {count} images for {race} race. Consider adding more for reliable metrics.")
-                else:
-                    # No sample files, generate simulated data
-                    # But use the actual model's categories for accuracy
-                    for _ in range(sample_size):
-                        # Generate synthetic gender and race data with bias
-                        # White males are overrepresented (60% of white samples are male)
-                        # Other races have balanced gender (50% male/female)
-                        race_idx = np.random.choice(range(len(race_categories)), p=[0.5, 0.15, 0.15, 0.1, 0.05, 0.03, 0.02][:len(race_categories)])
-                        race = race_categories[race_idx]
-                        
-                        if race == "White":
-                            gender_idx = np.random.choice([0, 1], p=[0.4, 0.6])  # 60% male for white
-                        else:
-                            gender_idx = np.random.choice([0, 1], p=[0.5, 0.5])  # 50% male for others
-                        
-                        gender = gender_categories[gender_idx]
-                        age = model.age_map[np.random.randint(0, 9)]  # 9 age categories
-                        
-                        # Store string values
-                        sample_predictions['gender'].append(gender)
-                        sample_predictions['race'].append(race)
-                        sample_predictions['age'].append(age)
-                        
-                        sample_labels['gender'].append(gender)
-                        sample_labels['race'].append(race)
-                        sample_labels['age'].append(age)
-            
-            else:
-                # No sample directory, generate simulated data
-                for _ in range(sample_size):
-                    # Generate synthetic gender and race data with bias
-                    # White males are overrepresented (60% of white samples are male)
-                    # Other races have balanced gender (50% male/female)
-                    race_idx = np.random.choice(range(len(race_categories)), p=[0.5, 0.15, 0.15, 0.1, 0.05, 0.03, 0.02][:len(race_categories)])
-                    race = race_categories[race_idx]
+                            st.warning(f"Only {count} images for {race} race in ground truth. Metrics may be unreliable.")
                     
-                    if race == "White":
-                        gender_idx = np.random.choice([0, 1], p=[0.4, 0.6])  # 60% male for white
-                    else:
-                        gender_idx = np.random.choice([0, 1], p=[0.5, 0.5])  # 50% male for others
+                    # Detect bias using predictions and ground truth
+                    bias_metrics = bias_detector.detect_bias(sample_predictions, sample_labels)
                     
-                    gender = gender_categories[gender_idx]
-                    age = model.age_map[np.random.randint(0, 9)]  # 9 age categories
+                    # Interpret bias metrics
+                    bias_interpretations = bias_detector.interpret_bias_metrics(bias_metrics)
                     
-                    # Store string values
-                    sample_predictions['gender'].append(gender)
-                    sample_predictions['race'].append(race)
-                    sample_predictions['age'].append(age)
+                    # Store the bias metrics in session state for mitigation
+                    if 'bias_metrics' not in st.session_state:
+                        st.session_state['bias_metrics'] = {}
+                    if 'bias_interpretations' not in st.session_state:
+                        st.session_state['bias_interpretations'] = {}
+                        
+                    st.session_state['bias_metrics'] = bias_metrics
+                    st.session_state['bias_interpretations'] = bias_interpretations
+                    st.session_state['sample_predictions'] = sample_predictions
+                    st.session_state['sample_labels'] = sample_labels
                     
-                    sample_labels['gender'].append(gender)
-                    sample_labels['race'].append(race)
-                    sample_labels['age'].append(age)
-            
-            # Detect bias
-            bias_metrics = bias_detector.detect_bias(sample_predictions, sample_labels)
-            
-            # Interpret bias metrics
-            bias_interpretations = bias_detector.interpret_bias_metrics(bias_metrics)
-            
-            # Store the bias metrics in session state for mitigation
-            if 'bias_metrics' not in st.session_state:
-                st.session_state['bias_metrics'] = {}
-            if 'bias_interpretations' not in st.session_state:
-                st.session_state['bias_interpretations'] = {}
-                
-            st.session_state['bias_metrics'] = bias_metrics
-            st.session_state['bias_interpretations'] = bias_interpretations
-            st.session_state['sample_predictions'] = sample_predictions
-            st.session_state['sample_labels'] = sample_labels
-            
-            # Display bias metrics using our UI component
-            display_bias_metrics(bias_metrics, bias_interpretations)
-    
+                    # Display bias metrics using our UI component
+                    display_bias_metrics(bias_metrics, bias_interpretations)
+                    
+                except Exception as e:
+                    st.error(f"Error in bias detection process: {str(e)}")
+                    st.warning("Falling back to synthetic data for demonstration...")
+                    # Code to handle fallback to synthetic data would go here...
+
     # Bias Mitigation section
     st.subheader("Bias Mitigation")
     
