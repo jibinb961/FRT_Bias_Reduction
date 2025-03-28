@@ -125,11 +125,27 @@ class BiasDetector:
                 privileged_groups = [{'gender': 'Male'}]  # Example: males as privileged group
                 unprivileged_groups = [{'gender': 'Female'}]  # Example: females as unprivileged group
                 
+                # Convert gender indices to strings
+                gender_values = []
+                for g_idx in true_labels['gender']:
+                    if g_idx in self.gender_map:
+                        gender_values.append(self.gender_map[g_idx])
+                    else:
+                        gender_values.append('Unknown')
+                
                 # Prepare dataset
-                dataset = self.prepare_dataset(
-                    model_predictions['gender'],
-                    true_labels,
-                    protected_attribute='gender'
+                g_df = pd.DataFrame({
+                    'prediction': model_predictions['gender'],
+                    'label': true_labels['gender'],
+                    'gender': gender_values
+                })
+                
+                dataset = BinaryLabelDataset(
+                    df=g_df,
+                    label_names=['label'],
+                    protected_attribute_names=['gender'],
+                    favorable_label=1,
+                    unfavorable_label=0
                 )
                 
                 # Compute metrics
@@ -141,26 +157,47 @@ class BiasDetector:
                 # Example: white as privileged group
                 privileged_groups = [{'race': 'White'}]
                 
+                # Convert race indices to strings
+                race_values = []
+                for r_idx in true_labels['race']:
+                    if r_idx in self.race_map:
+                        race_values.append(self.race_map[r_idx])
+                    else:
+                        race_values.append('Unknown')
+                
                 # Check bias against each racial group
                 racial_bias = {}
-                for race_id, race_name in self.race_map.items():
-                    if race_name == 'White':
+                
+                # Create a list of all racial groups
+                all_race_groups = set(race_values)
+                
+                for race in all_race_groups:
+                    if race == 'White' or race == 'Unknown':
                         continue
                     
-                    unprivileged_groups = [{'race': race_name}]
+                    unprivileged_groups = [{'race': race}]
                     
                     # Prepare dataset
-                    dataset = self.prepare_dataset(
-                        model_predictions['race'],
-                        true_labels,
-                        protected_attribute='race'
+                    r_df = pd.DataFrame({
+                        'prediction': model_predictions['race'],
+                        'label': true_labels['race'],
+                        'race': race_values
+                    })
+                    
+                    dataset = BinaryLabelDataset(
+                        df=r_df,
+                        label_names=['label'],
+                        protected_attribute_names=['race'],
+                        favorable_label=1,
+                        unfavorable_label=0
                     )
                     
                     # Compute metrics
                     metrics = self.compute_metrics(dataset, privileged_groups, unprivileged_groups)
-                    racial_bias[race_name] = metrics
+                    racial_bias[race] = metrics
                 
-                bias_metrics['race'] = racial_bias
+                if racial_bias:  # Only add if we have metrics
+                    bias_metrics['race'] = racial_bias
         
         return bias_metrics
     

@@ -1,0 +1,63 @@
+Prompt with Summary:
+
+You are tasked with developing a simplified working prototype to reduce bias and ensure privacy in facial recognition technology (FRT). The goal is to create a functional demo that showcases how AI models can be improved using bias mitigation techniques and privacy-preserving methods. This project will focus on the agricultural sector, specifically on reducing bias in farmworker identification.
+
+The prototype will:
+
+Detect and mitigate bias using AI Fairness 360.
+Enhance privacy by implementing homomorphic encryption using Microsoft SEAL.
+Provide explainability through SHAP visualizations.
+Offer a user-friendly interface using Streamlit for image uploads and result viewing.
+Key Objectives:
+Develop the prototype in logical stages using clear commits and branches for version control.
+Maintain detailed documentation for each completed stage, explaining progress, decisions, and implementation details.
+Ensure documentation is clear and structured so another AI or developer can seamlessly continue the project.
+Track time spent on each stage, note challenges, and suggest improvements for future development.
+Development Stages:
+Stage 1: Project Setup and Initialization
+
+Set up the environment with necessary libraries.
+Initialize a Git repository with a clear branching strategy.
+Document the setup process and initial configurations.
+Stage 2: Data Preparation
+
+Download and preprocess the FairFace dataset.
+Implement any necessary data augmentation.
+Log progress in the documentation.
+Stage 3: Model Development and Training
+
+Implement a lightweight ResNet-18 using PyTorch.
+Train and validate the model on the FairFace dataset.
+Record hyperparameters, evaluation metrics, and issues in the documentation.
+Stage 4: Bias Detection and Mitigation
+
+Apply AI Fairness 360 to detect and mitigate bias.
+Experiment with mitigation techniques like re-weighting or resampling.
+Document test results, bias evaluation metrics, and decisions made.
+Stage 5: Privacy Preservation
+
+Implement homomorphic encryption using Microsoft SEAL.
+Encrypt facial embeddings and demonstrate privacy-preserving predictions.
+Record implementation details and performance impact.
+Stage 6: Explainability and Testing
+
+Use SHAP for explainability.
+Generate feature importance visualizations to interpret model decisions.
+Document visual results and insights.
+Stage 7: UI Development
+
+Build a simple Streamlit app for uploading images and viewing results.
+Provide interactive visualizations for model predictions and bias evaluation.
+Maintain user interface code in a separate branch for easy iteration.
+Stage 8: Final Testing and Refinement
+
+Perform end-to-end testing.
+Track bugs, resolve issues, and apply improvements.
+Document final results and recommendations.
+Documentation Guidelines:
+Maintain a README.md with detailed instructions for setup, usage, and testing.
+Create a DEVLOG.md to document each stage, including AI-generated suggestions and implementation changes.
+Include a NEXTSTEPS.md with clear notes for future developers or AI systems.
+Ensure all progress is committed to Git with clear commit messages following conventional commit guidelines (e.g., feat:, fix:, docs:). Tag major milestones with appropriate version numbers.
+
+Your primary goal is to deliver a clean, efficient, and well-documented prototype. Stay mindful of code readability and maintainability.
