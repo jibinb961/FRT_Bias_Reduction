@@ -152,6 +152,44 @@ class BiasDetector:
         # Debug print for pandas
         print("Pandas version:", pd.__version__)
         
+        # Normalize race names to handle differences between CSV format and model output
+        # This helps with common formatting differences (e.g., Latino_Hispanic vs Latino/Hispanic)
+        normalized_race_predictions = []
+        normalized_race_truth = []
+        
+        if 'race' in model_predictions and 'race' in true_labels:
+            # Create mapping for common variations
+            race_mapping = {
+                "latino_hispanic": "Latino/Hispanic",
+                "latino/hispanic": "Latino/Hispanic",
+                "east asian": "East Asian",
+                "east_asian": "East Asian",
+                "southeast asian": "Southeast Asian",
+                "southeast_asian": "Southeast Asian",
+                "middle eastern": "Middle Eastern", 
+                "middle_eastern": "Middle Eastern"
+            }
+            
+            # Normalize race predictions
+            for race in model_predictions['race']:
+                race_lower = race.lower()
+                if race_lower in race_mapping:
+                    normalized_race_predictions.append(race_mapping[race_lower])
+                else:
+                    normalized_race_predictions.append(race)
+            
+            # Normalize race truths
+            for race in true_labels['race']:
+                race_lower = race.lower()
+                if race_lower in race_mapping:
+                    normalized_race_truth.append(race_mapping[race_lower])
+                else:
+                    normalized_race_truth.append(race)
+            
+            # Replace original arrays with normalized versions
+            model_predictions['race'] = normalized_race_predictions
+            true_labels['race'] = normalized_race_truth
+        
         bias_metrics = {}
         
         # Check if we have gender predictions and labels
@@ -278,51 +316,46 @@ class BiasDetector:
                 correct_this_race = sum([1 for i, is_race in enumerate(race_indicators) if is_race == 1 and prediction_correct[i] == 1])
                 correct_other_races = sum([1 for i, is_race in enumerate(race_indicators) if is_race == 0 and prediction_correct[i] == 1])
                 
-                print(f"Race accuracy: {race}={correct_this_race/race_count if race_count > 0 else 0:.2f}, "
-                      f"Others={correct_other_races/other_races_count if other_races_count > 0 else 0:.2f}")
+                accuracy_this_race = correct_this_race/race_count if race_count > 0 else 0
+                accuracy_other_races = correct_other_races/other_races_count if other_races_count > 0 else 0
                 
-                # Create dataframe with numerical values
-                r_df = pd.DataFrame({
-                    'prediction': is_this_race_pred,  # Whether predicted as this race (1) or not (0)
-                    'label': is_this_race_true,       # Whether actually this race (1) or not (0)
-                    'race_indicator': race_indicators # Whether this race (1) or not (0), same as label
-                })
+                print(f"Race accuracy: {race}={accuracy_this_race:.2f}, "
+                      f"Others={accuracy_other_races:.2f}")
                 
-                # Define privileged (non-specified race) and unprivileged (specified race) groups
-                privileged_groups = [{'race_indicator': 0}]  # Not this race
-                unprivileged_groups = [{'race_indicator': 1}]  # This race
+                # We'll directly calculate the fairness metrics here since using AIF360 with our setup
+                # causes the metrics to show as 0 and 1
+                statistical_parity_difference = accuracy_this_race - accuracy_other_races
                 
-                try:
-                    # Create dataset
-                    dataset = BinaryLabelDataset(
-                        df=r_df,
-                        label_names=['label'],
-                        protected_attribute_names=['race_indicator'],
-                        favorable_label=1,
-                        unfavorable_label=0
-                    )
-                    
-                    # Compute metrics
-                    metrics = self.compute_metrics(dataset, privileged_groups, unprivileged_groups)
-                    metrics['insufficient_data'] = False
-                    racial_bias[race] = metrics
-                except Exception as e:
-                    print(f"Error computing bias metrics for race '{race}': {str(e)}")
-                    # Provide placeholder metrics
-                    racial_bias[race] = {
-                        'statistical_parity_difference': 0.0,
-                        'disparate_impact': None,
-                        'group_size': {
-                            'privileged': other_races_count,
-                            'unprivileged': race_count
-                        },
-                        'base_rates': {
-                            'privileged': 0.0,
-                            'unprivileged': 0.0
-                        },
-                        'insufficient_data': True,
-                        'error': str(e)
+                # Calculate disparate impact safely
+                if accuracy_other_races > 0:
+                    disparate_impact = accuracy_this_race / accuracy_other_races
+                elif accuracy_this_race > 0:
+                    disparate_impact = float('inf')  # If other races have 0 accuracy but this race has some
+                    print(f"DI calculation for {race}: Other races have zero accuracy, this race has positive")
+                else:
+                    disparate_impact = None  # If both have 0 accuracy
+                    print(f"DI calculation for {race}: Both this race and other races have zero accuracy")
+                
+                # Store the metrics directly instead of using the compute_metrics function
+                metrics = {
+                    'statistical_parity_difference': statistical_parity_difference,
+                    'disparate_impact': disparate_impact,
+                    'group_size': {
+                        'privileged': other_races_count,
+                        'unprivileged': race_count
+                    },
+                    'base_rates': {
+                        'privileged': accuracy_other_races,
+                        'unprivileged': accuracy_this_race
+                    },
+                    'insufficient_data': False,
+                    'accuracy': {
+                        'this_race': accuracy_this_race,
+                        'other_races': accuracy_other_races
                     }
+                }
+                
+                racial_bias[race] = metrics
             
             if racial_bias:  # Only add if we have metrics
                 bias_metrics['race'] = racial_bias
@@ -378,17 +411,52 @@ class BiasDetector:
                         description = f"Insufficient data to determine bias level for {race} individuals."
                     elif abs(spd) < 0.05 and 0.95 <= di <= 1.05:
                         bias_level = "Low"
-                        description = f"The model shows minimal bias against {race} individuals."
+                        description = f"The model shows minimal accuracy bias for {race} individuals."
                     elif abs(spd) < 0.1 and 0.9 <= di <= 1.1:
                         bias_level = "Moderate"
-                        description = f"The model shows some bias against {race} individuals that may need attention."
+                        description = f"The model shows some accuracy bias for {race} individuals that may need attention."
                     else:
                         bias_level = "High"
-                        description = f"The model shows significant bias against {race} individuals that requires mitigation."
+                        if 'accuracy' in race_metrics and race_metrics['accuracy']['this_race'] < race_metrics['accuracy']['other_races']:
+                            description = f"The model has significantly lower accuracy for {race} individuals compared to other races."
+                        elif 'accuracy' in race_metrics and race_metrics['accuracy']['this_race'] > race_metrics['accuracy']['other_races']:
+                            description = f"The model has significantly higher accuracy for {race} individuals compared to other races."
+                        else:
+                            description = f"The model shows significant accuracy bias for {race} individuals that requires mitigation."
+                    
+                    # Add additional explanation about what the metrics mean
+                    accuracy_explanation = f"""
+                    For {race} individuals:
+                    
+                    - Statistical Parity Difference (SPD): {spd:.4f}
+                      This is the difference in prediction accuracy between {race} and other races.
+                      Negative value means the model is less accurate for {race} individuals.
+                      Positive value means the model is more accurate for {race} individuals.
+                    
+                    - Disparate Impact (DI): {di if di is not None else 'N/A'}
+                      This is the ratio of prediction accuracy between {race} and other races.
+                      Value less than 1.0 means the model is less accurate for {race} individuals.
+                      Value greater than 1.0 means the model is more accurate for {race} individuals.
+                    """
+                    
+                    # Add accuracy information if available
+                    if 'accuracy' in race_metrics:
+                        this_race_acc = race_metrics['accuracy']['this_race']
+                        other_races_acc = race_metrics['accuracy']['other_races']
+                        
+                        accuracy_explanation += f"""
+                        
+                        - Accuracy for {race}: {this_race_acc:.2%}
+                        - Accuracy for other races: {other_races_acc:.2%}
+                        - Accuracy gap: {(this_race_acc - other_races_acc):.2%}
+                        
+                        The model's accuracy is {"higher" if this_race_acc > other_races_acc else "lower"} for {race} individuals.
+                        """
                     
                     racial_interpretations[race] = {
                         'bias_level': bias_level,
                         'description': description,
+                        'explanation': accuracy_explanation,
                         'metrics': race_metrics
                     }
                 

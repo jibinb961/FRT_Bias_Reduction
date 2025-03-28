@@ -293,7 +293,7 @@ def show_bias_detection_page():
                     
                     # Get image files from the directory
                     image_files = [f for f in os.listdir(sample_dir) if f.endswith(('.jpg', '.png', '.jpeg'))]
-                    max_sample_files = min(100, len(image_files))  # Process up to 100 images
+                    max_sample_files = min(400, len(image_files))  # Process up to 400 images instead of 100
                     
                     # Create counters for analyzing dataset distribution
                     gender_pred_counts = {"Male": 0, "Female": 0}
@@ -305,7 +305,15 @@ def show_bias_detection_page():
                     processed_images = 0
                     error_count = 0
                     
+                    # Add status bar for processing many images
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    
                     for i in range(1, max_sample_files + 1):
+                        # Update progress
+                        progress_bar.progress(i / max_sample_files)
+                        status_text.text(f"Processing image {i}/{max_sample_files}...")
+                        
                         img_filename = f"{i}.jpg"
                         img_path = os.path.join(sample_dir, img_filename)
                         
@@ -314,11 +322,14 @@ def show_bias_detection_page():
                             continue
                         
                         # Find corresponding label in CSV
-                        # CSV may have 'train/1.jpg' format, so handle both cases
-                        label_row = labels_df[labels_df['file'] == f'train/{i}.jpg'] if not labels_df[labels_df['file'] == f'train/{i}.jpg'].empty else labels_df[labels_df['file'] == img_filename]
+                        # CSV may have 'val/1.jpg' or 'train/1.jpg' format, so handle multiple cases
+                        label_row = labels_df[labels_df['file'] == f'val/{i}.jpg']
+                        if label_row.empty:
+                            label_row = labels_df[labels_df['file'] == f'train/{i}.jpg']
+                        if label_row.empty:
+                            label_row = labels_df[labels_df['file'] == img_filename]
                         
                         if label_row.empty:
-                            st.warning(f"No label found for image {img_filename}")
                             continue
                         
                         try:
@@ -351,9 +362,12 @@ def show_bias_detection_page():
                             processed_images += 1
                             
                         except Exception as e:
-                            st.error(f"Error processing {img_filename}: {e}")
                             error_count += 1
                             continue
+                    
+                    # Clean up progress indicators
+                    progress_bar.empty()
+                    status_text.empty()
                     
                     # Check if we have enough data to proceed
                     if processed_images < 10:
@@ -402,6 +416,60 @@ def show_bias_detection_page():
                             'Count': list(race_true_counts.values())
                         })
                         st.bar_chart(race_true_df.set_index('Race'))
+                    
+                    # Calculate and show accuracy statistics
+                    st.subheader("Classification Accuracy")
+                    
+                    # Calculate correct predictions for each gender and race
+                    gender_correct = {}
+                    race_correct = {}
+                    
+                    for i in range(len(sample_predictions['gender'])):
+                        # Gender accuracy
+                        gender_pred = sample_predictions['gender'][i]
+                        gender_true = sample_labels['gender'][i]
+                        
+                        if gender_pred == gender_true:
+                            gender_correct[gender_true] = gender_correct.get(gender_true, 0) + 1
+                        
+                        # Race accuracy
+                        race_pred = sample_predictions['race'][i]
+                        race_true = sample_labels['race'][i]
+                        
+                        if race_pred == race_true:
+                            race_correct[race_true] = race_correct.get(race_true, 0) + 1
+                    
+                    # Display gender accuracy
+                    st.write("##### Gender Accuracy")
+                    gender_accuracy_data = []
+                    for gender, count in gender_true_counts.items():
+                        correct = gender_correct.get(gender, 0)
+                        accuracy = correct / count if count > 0 else 0
+                        gender_accuracy_data.append({
+                            'Gender': gender,
+                            'Total Images': count,
+                            'Correctly Classified': correct,
+                            'Accuracy': f"{accuracy:.2%}"
+                        })
+                    
+                    gender_accuracy_df = pd.DataFrame(gender_accuracy_data)
+                    st.table(gender_accuracy_df)
+                    
+                    # Display race accuracy
+                    st.write("##### Race Accuracy")
+                    race_accuracy_data = []
+                    for race, count in race_true_counts.items():
+                        correct = race_correct.get(race, 0)
+                        accuracy = correct / count if count > 0 else 0
+                        race_accuracy_data.append({
+                            'Race': race,
+                            'Total Images': count,
+                            'Correctly Classified': correct,
+                            'Accuracy': f"{accuracy:.2%}"
+                        })
+                    
+                    race_accuracy_df = pd.DataFrame(race_accuracy_data)
+                    st.table(race_accuracy_df)
                     
                     # Warn if distribution is very imbalanced
                     for race, count in race_true_counts.items():

@@ -171,6 +171,21 @@ def display_bias_metrics(bias_metrics, interpretations=None):
                     st.write(f"Other races positive rate: {base_rates['privileged']:.4f}")
                     st.write(f"{race} positive rate: {base_rates['unprivileged']:.4f}")
                 
+                # Show accuracy info if available
+                if 'accuracy' in metrics:
+                    st.write("##### Prediction Accuracy")
+                    st.write(f"{race}: {metrics['accuracy']['this_race']:.2%}")
+                    st.write(f"Other races: {metrics['accuracy']['other_races']:.2%}")
+                    
+                    # Calculate accuracy gap
+                    accuracy_gap = metrics['accuracy']['this_race'] - metrics['accuracy']['other_races']
+                    if accuracy_gap < 0:
+                        st.warning(f"Accuracy gap: {accuracy_gap:.2%} (lower for {race})")
+                    elif accuracy_gap > 0:
+                        st.success(f"Accuracy gap: +{accuracy_gap:.2%} (higher for {race})")
+                    else:
+                        st.info("No accuracy gap")
+                
                 st.write(f"Other races group size: {group_sizes['privileged']}")
                 st.write(f"{race} group size: {group_sizes['unprivileged']}")
                 
@@ -193,6 +208,11 @@ def display_bias_metrics(bias_metrics, interpretations=None):
                         st.error(f"Bias Level: {bias_level}")
                     
                     st.write(description)
+                    
+                    # Display the additional explanation if available
+                    if 'explanation' in race_interp:
+                        with st.expander("See detailed explanation"):
+                            st.write(race_interp['explanation'])
             
             # Add a note if metrics seem problematic
             if di is None or np.isinf(di) or abs(spd) > 0.8:
