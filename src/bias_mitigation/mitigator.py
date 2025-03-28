@@ -145,6 +145,9 @@ class BiasMitigator:
         Returns:
             BinaryLabelDataset: Dataset prepared for bias mitigation
         """
+        # Ensure pandas is imported in this scope
+        import pandas as pd
+        
         # Create a dataframe
         df = pd.DataFrame({
             'prediction': predictions,

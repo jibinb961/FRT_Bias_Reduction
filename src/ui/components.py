@@ -8,105 +8,203 @@ from PIL import Image
 import io
 import base64
 
-def display_bias_metrics(bias_metrics, bias_interpretations):
+def display_bias_metrics(bias_metrics, interpretations=None):
     """
-    Display bias metrics in the Streamlit UI
+    Display bias metrics in a user-friendly way
     
     Args:
         bias_metrics (dict): Dictionary of bias metrics
-        bias_interpretations (dict): Dictionary of bias interpretations
+        interpretations (dict, optional): Dictionary of bias interpretations
     """
-    st.subheader("Bias Detection Results")
+    st.subheader("Bias Metrics")
+    
+    # Handle no metrics
+    if not bias_metrics:
+        st.info("No bias metrics available. Please run bias detection first.")
+        return
     
     # Gender bias
     if 'gender' in bias_metrics:
-        st.write("### Gender Bias")
+        st.markdown("### Gender Bias")
         
         gender_metrics = bias_metrics['gender']
-        gender_interp = bias_interpretations['gender']
         
-        # Display interpretation
-        st.write(f"**Bias Level**: {gender_interp['bias_level']}")
-        st.write(f"**Description**: {gender_interp['description']}")
+        # Check if we have insufficient data
+        if gender_metrics.get('insufficient_data', False):
+            st.warning("""
+            **Insufficient data for reliable gender bias metrics.**
+            
+            The sample size for one or more gender groups is too small. 
+            Add more diverse images to your sample_data directory for better metrics.
+            """)
+            
+            # Still show group sizes
+            group_sizes = gender_metrics['group_size']
+            st.write(f"Male group size: {group_sizes['privileged']}")
+            st.write(f"Female group size: {group_sizes['unprivileged']}")
+            
+            # Show base rates if available
+            if 'base_rates' in gender_metrics:
+                base_rates = gender_metrics['base_rates']
+                st.write(f"Male positive rate: {base_rates['privileged']:.4f}")
+                st.write(f"Female positive rate: {base_rates['unprivileged']:.4f}")
+                
+            return
+        
+        # Get metrics
+        spd = gender_metrics['statistical_parity_difference']
+        di = gender_metrics['disparate_impact']
+        
+        # Format values for display
+        spd_formatted = f"{spd:.4f}"
+        
+        # Handle potential inf values in disparate impact
+        if np.isinf(di):
+            di_formatted = "∞ (division by zero)"
+        else:
+            di_formatted = f"{di:.4f}"
+        
+        # Show group sizes
+        group_sizes = gender_metrics['group_size']
         
         # Display metrics
         col1, col2 = st.columns(2)
         
         with col1:
-            st.metric(
-                "Statistical Parity Difference", 
-                f"{gender_metrics['statistical_parity_difference']:.4f}",
-                help="Measures the difference in selection rates between privileged and unprivileged groups. Value of 0 means no bias."
-            )
-        
+            st.metric("Statistical Parity Difference", spd_formatted, 
+                      delta=None,
+                      delta_color="inverse")
+            st.write("SPD measures the difference in positive outcome rates between groups.")
+            st.write("Target: Close to 0 (range: -1 to 1)")
+            
+            # Show base rates if available
+            if 'base_rates' in gender_metrics:
+                base_rates = gender_metrics['base_rates']
+                st.write(f"Male positive rate: {base_rates['privileged']:.4f}")
+                st.write(f"Female positive rate: {base_rates['unprivileged']:.4f}")
+            
+            st.write(f"Male group size: {group_sizes['privileged']}")
+            st.write(f"Female group size: {group_sizes['unprivileged']}")
+            
         with col2:
-            st.metric(
-                "Disparate Impact", 
-                f"{gender_metrics['disparate_impact']:.4f}",
-                help="Ratio of selection rates between unprivileged and privileged groups. Value of 1 means no bias."
-            )
-        
-        # Display group sizes
-        group_sizes = gender_metrics['group_size']
-        
-        # Create a bar chart for group sizes
-        fig = px.bar(
-            x=['Male', 'Female'],
-            y=[group_sizes['privileged'], group_sizes['unprivileged']],
-            labels={'x': 'Gender', 'y': 'Group Size'},
-            title='Group Sizes by Gender'
-        )
-        
-        st.plotly_chart(fig)
+            st.metric("Disparate Impact", di_formatted,
+                      delta=None,
+                      delta_color="off")
+            st.write("DI measures the ratio of positive outcome rates between groups.")
+            st.write("Target: Close to 1.0 (above 0.8 is typically acceptable)")
+            
+            # Show interpretation if available
+            if interpretations and 'gender' in interpretations:
+                gender_interp = interpretations['gender']
+                bias_level = gender_interp['bias_level']
+                description = gender_interp['description']
+                
+                if bias_level == "Low":
+                    st.success(f"Bias Level: {bias_level}")
+                elif bias_level == "Moderate":
+                    st.warning(f"Bias Level: {bias_level}")
+                else:
+                    st.error(f"Bias Level: {bias_level}")
+                
+                st.write(description)
     
-    # Racial bias
+    # Race bias
     if 'race' in bias_metrics:
-        st.write("### Racial Bias")
+        st.markdown("### Racial Bias")
         
         racial_bias = bias_metrics['race']
-        racial_interp = bias_interpretations['race']
+        all_insufficient = True
         
-        # Create tabs for each race
-        race_tabs = st.tabs(list(racial_bias.keys()))
+        for race, metrics in racial_bias.items():
+            st.markdown(f"#### {race}")
+            
+            # Check if we have insufficient data for this race
+            if metrics.get('insufficient_data', False):
+                st.warning(f"""
+                **Insufficient data for reliable bias metrics for {race}.**
+                
+                The sample size for this race is too small. 
+                Add more images of {race} individuals to your sample_data directory.
+                """)
+                
+                # Still show group sizes
+                group_sizes = metrics['group_size']
+                st.write(f"Other races group size: {group_sizes['privileged']}")
+                st.write(f"{race} group size: {group_sizes['unprivileged']}")
+                
+                st.markdown("---")
+                continue
+                
+            all_insufficient = False
+            
+            # Get metrics
+            spd = metrics['statistical_parity_difference']
+            di = metrics['disparate_impact']
+            
+            # Format values for display
+            spd_formatted = f"{spd:.4f}"
+            
+            # Handle potential inf values in disparate impact
+            if np.isinf(di):
+                di_formatted = "∞ (insufficient data)"
+            else:
+                di_formatted = f"{di:.4f}"
+            
+            # Show group sizes
+            group_sizes = metrics['group_size']
+            
+            # Display metrics
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.metric("Statistical Parity Difference", spd_formatted, 
+                          delta=None,
+                          delta_color="inverse")
+                
+                # Show base rates if available
+                if 'base_rates' in metrics:
+                    base_rates = metrics['base_rates']
+                    st.write(f"Other races positive rate: {base_rates['privileged']:.4f}")
+                    st.write(f"{race} positive rate: {base_rates['unprivileged']:.4f}")
+                
+                st.write(f"Other races group size: {group_sizes['privileged']}")
+                st.write(f"{race} group size: {group_sizes['unprivileged']}")
+                
+            with col2:
+                st.metric("Disparate Impact", di_formatted,
+                          delta=None,
+                          delta_color="off")
+                
+                # Show interpretation if available
+                if interpretations and 'race' in interpretations and race in interpretations['race']:
+                    race_interp = interpretations['race'][race]
+                    bias_level = race_interp['bias_level']
+                    description = race_interp['description']
+                    
+                    if bias_level == "Low":
+                        st.success(f"Bias Level: {bias_level}")
+                    elif bias_level == "Moderate":
+                        st.warning(f"Bias Level: {bias_level}")
+                    else:
+                        st.error(f"Bias Level: {bias_level}")
+                    
+                    st.write(description)
+            
+            # Add a note if metrics seem problematic
+            if np.isinf(di) or abs(spd) > 0.8:
+                st.info(f"""
+                Note: The metrics for {race} may be affected by small sample size or class imbalance. 
+                Consider adding more diverse sample images to get more accurate bias measurements.
+                """)
+            
+            st.markdown("---")
         
-        for i, (race, tab) in enumerate(zip(racial_bias.keys(), race_tabs)):
-            with tab:
-                race_metrics = racial_bias[race]
-                race_interp = racial_interp[race]
-                
-                # Display interpretation
-                st.write(f"**Bias Level**: {race_interp['bias_level']}")
-                st.write(f"**Description**: {race_interp['description']}")
-                
-                # Display metrics
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.metric(
-                        "Statistical Parity Difference", 
-                        f"{race_metrics['statistical_parity_difference']:.4f}",
-                        help="Measures the difference in selection rates between White and this racial group. Value of 0 means no bias."
-                    )
-                
-                with col2:
-                    st.metric(
-                        "Disparate Impact", 
-                        f"{race_metrics['disparate_impact']:.4f}",
-                        help="Ratio of selection rates between this racial group and White. Value of 1 means no bias."
-                    )
-                
-                # Display group sizes
-                group_sizes = race_metrics['group_size']
-                
-                # Create a bar chart for group sizes
-                fig = px.bar(
-                    x=['White', race],
-                    y=[group_sizes['privileged'], group_sizes['unprivileged']],
-                    labels={'x': 'Race', 'y': 'Group Size'},
-                    title=f'Group Sizes: White vs. {race}'
-                )
-                
-                st.plotly_chart(fig)
+        if all_insufficient:
+            st.error("""
+            **All racial groups have insufficient data for reliable bias metrics.**
+            
+            Please add more diverse images to your sample_data directory covering different racial groups.
+            """)
 
 def display_shap_explanation(image, explanation, task='gender'):
     """
