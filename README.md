@@ -225,7 +225,3 @@ See `NEXTSTEPS.md` for planned improvements, including:
 - Advanced bias mitigation techniques
 - More sophisticated homomorphic encryption approaches
 - Extended support for custom models and datasets
-
-## License
-
-[Add your license information here] 
